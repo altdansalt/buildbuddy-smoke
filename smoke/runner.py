@@ -6,7 +6,8 @@ import os
 from pathlib import Path
 import socket
 import subprocess
-import tempfile
+import platform
+import re
 import time
 import traceback
 from types import SimpleNamespace
@@ -98,8 +99,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--binary', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--profile', choices=['core', 'full'], default='full')
     args = parser.parse_args()
-    report = {'tests': []}
+    report = {'tests': [], 'machine': {'platform': platform.platform(), 'python': platform.python_version(),
+                                      'cpu_count': os.cpu_count(), 'app_gomaxprocs': 4}}
 
     def save():
         temp = args.output / 'report.tmp'
@@ -128,20 +131,54 @@ def main():
     ctx = SimpleNamespace(timeout=5, state={}, cleanups=[], http_url=app.http_url,
                           grpc_target=f'127.0.0.1:{app.grpc}', output=args.output, app=app)
     ctx.channel = grpc.insecure_channel(ctx.grpc_target)
+
+    def stop_app():
+        # Every RPC has completed; release the client before testing server drain.
+        # Keeping an idle HTTP/2 client open unnecessarily consumes the grace window.
+        ctx.channel.close()
+        app.stop()
+
+    def fingerprint():
+        digest = hashlib.sha256()
+        with args.binary.open('rb') as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+                digest.update(chunk)
+        report['binary_sha256'] = digest.hexdigest()
+
     try:
+        case('app.binary_fingerprint', fingerprint)
         if not case('app.cold_start_sqlite_migration_ready', app.start):
             return 1
+        first_line = (args.output / 'app-1.log').read_text().splitlines()[0]
+        report['binary_version_line'] = re.sub(r'\x1b\[[0-9;]*m', '', first_line)
         from smoke import cache, bes, asset, web
         for module in (web, cache, asset, bes):
             for name, fn in module.cases(ctx):
                 case(name, fn)
+        for name, fn in web.artifact_cases(ctx):
+            case(name, fn)
         case('web.chromium_invocation_and_logs', lambda: web.browser_check(ctx))
-        case('app.graceful_shutdown', app.stop)
+        if args.profile == 'full':
+            from smoke import bazel
+            for name, fn in bazel.cases(ctx):
+                case(name, fn)
+        case('app.graceful_shutdown', stop_app)
         ctx.channel.close()
         if case('app.restart_existing_storage_ready', app.start):
             ctx.channel = grpc.insecure_channel(ctx.grpc_target)
             case('persistence.cache_and_invocation', lambda: persistence(ctx))
-            case('app.final_graceful_shutdown', app.stop)
+            case('app.final_graceful_shutdown', stop_app)
+        from smoke import auth
+        config = json.loads(app.config.read_text())
+        config['auth'] = {'enable_anonymous_usage': False, 'enable_self_auth': True,
+                          'jwt_key': 'smoke-local-only-not-a-secret'}
+        app.config.write_text(json.dumps(config, indent=2))
+        ctx.channel.close()
+        if case('app.strict_auth_start', app.start):
+            ctx.channel = grpc.insecure_channel(ctx.grpc_target)
+            for name, fn in auth.cases(ctx):
+                case(name, fn)
+            case('app.strict_auth_shutdown', stop_app)
     except Exception:
         def failed():
             raise RuntimeError(traceback_text)
@@ -156,6 +193,8 @@ def main():
                 case('harness.cleanup', lambda: (_ for _ in ()).throw(RuntimeError(traceback.format_exc())))
         if app.process and app.process.poll() is None:
             case('app.cleanup_shutdown', app.stop)
+        (args.output / 'fixtures.json').write_text(json.dumps(ctx.state, indent=2, default=str) + '\n')
+        save()
     return int(any(t['status'] == 'FAIL' for t in report['tests']))
 
 

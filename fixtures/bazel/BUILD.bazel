@@ -1,0 +1,10 @@
+load(":smoke.bzl", "smoke_copy")
+
+# Avoid Bazel's default host platform repository entirely.
+platform(name = "local")
+
+smoke_copy(
+    name = "artifact",
+    src = "payload.txt",
+    nonce = "nonce.txt",
+)

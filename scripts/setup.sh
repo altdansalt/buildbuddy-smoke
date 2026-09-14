@@ -8,21 +8,23 @@ BINARY_SHA256=1ea34ea814bd4a21021f4b0698cad6d726cce7e1843c88bda921c16a6ab73fd3
 # checked against the downloaded release asset. Never execute an unchecked asset.
 SKIP_BINARY=0
 SKIP_BROWSER=0
+SKIP_BAZEL=0
 WITH_DEPS=0
 BINARY="${BUILDBUDDY_BINARY:-}"
 usage() {
   cat <<'EOF'
-Usage: scripts/setup.sh [--binary PATH | --skip-binary] [--skip-browser] [--with-deps]
+Usage: scripts/setup.sh [--binary PATH | --skip-binary] [--skip-browser] [--skip-bazel] [--with-deps]
 
 Creates .venv/, generated/, and .tools/buildbuddy-enterprise. By default downloads
 and SHA256-verifies BuildBuddy enterprise v2.303.0 for Linux amd64, generates
-bindings from pinned source archives, and installs and launches Chromium.
+bindings from pinned source archives, and installs Chromium and Bazel 8.4.2.
 
   --binary PATH    Use an existing executable (also: BUILDBUDDY_BINARY=PATH).
                    Does not copy or overwrite it; pass the same path to the runner.
                    Protocols still use the pinned v2.303.0 source.
   --skip-binary    Skip executable download (supply one to the runner at runtime).
-  --skip-browser   Skip Chromium install/launch, useful for protocol-only setup.
+  --skip-browser   Skip Chromium installation (both runtime profiles still require it).
+  --skip-bazel     Omit Bazel setup if you only need run.py --profile core.
   --with-deps      Have Playwright install OS packages (requires root/sudo).
 
 Requires Python 3.10+ with venv/pip, curl, sha256sum. On Debian/Ubuntu, e.g.:
@@ -38,6 +40,7 @@ while (($#)); do
     --binary) [[ $# -ge 2 ]] || { usage >&2; exit 2; }; BINARY="$2"; shift 2 ;;
     --skip-binary) SKIP_BINARY=1; shift ;;
     --skip-browser) SKIP_BROWSER=1; shift ;;
+    --skip-bazel) SKIP_BAZEL=1; shift ;;
     --with-deps) WITH_DEPS=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
@@ -106,6 +109,9 @@ except Exception:
     print('or run: sudo .venv/bin/python -m playwright install-deps chromium')
     raise
 PY
+fi
+if (( ! SKIP_BAZEL )); then
+  "$ROOT/scripts/setup-bazel.sh"
 fi
 printf '\nSetup complete. Python: %s\nBindings: %s\n' "$PY" "$ROOT/generated"
 if [[ -n "$BINARY" ]]; then printf 'Binary: %s\n' "$BINARY"; fi

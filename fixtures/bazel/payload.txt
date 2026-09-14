@@ -1,0 +1,1 @@
+BuildBuddy real Bazel smoke: exact cached output.

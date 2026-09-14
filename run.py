@@ -17,6 +17,8 @@ def main():
     start = time.monotonic()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=Path, default=ROOT / '.tools/buildbuddy-enterprise')
+    parser.add_argument('--profile', choices=['core', 'full'], default='full',
+                        help='core: protocols/browser/auth; full: also real Bazel cache reuse')
     parser.add_argument('--budget', type=float, default=120, help='Hard wall-clock limit, 5..120 seconds')
     parser.add_argument('--output', type=Path, default=ROOT / 'results' / time.strftime('%Y%m%d-%H%M%S'))
     args = parser.parse_args()
@@ -31,7 +33,7 @@ def main():
     env['PYTHONPATH'] = str(ROOT / 'generated') + os.pathsep + str(ROOT)
     env['PYTHONUNBUFFERED'] = '1'
     p = subprocess.Popen([str(python), '-m', 'smoke.runner', '--binary', str(args.binary.resolve()),
-                          '--output', str(args.output)], env=env, start_new_session=True)
+                          '--output', str(args.output), '--profile', args.profile], env=env, start_new_session=True)
     failure = None
     try:
         rc = p.wait(timeout=max(.01, args.budget - 3 - (time.monotonic() - start)))
@@ -62,6 +64,7 @@ def main():
         report['tests'].append({'name': 'supervisor', 'status': 'FAIL', 'seconds': 0,
                                 'error': failure or f'Worker exited {rc}'})
     report['elapsed_seconds'] = round(time.monotonic() - start, 3)
+    report['profile'] = args.profile
     report['budget_seconds'] = args.budget
     report['binary'] = str(args.binary.resolve())
     report['passed'] = sum(t['status'] == 'PASS' for t in report['tests'])

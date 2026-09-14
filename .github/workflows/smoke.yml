@@ -1,0 +1,39 @@
+name: Binary smoke
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Bootstrap (not part of the smoke runtime budget)
+        run: scripts/setup.sh --with-deps
+      - name: Test timeout and failure reporting
+        run: python3 -m unittest discover -s tests -v
+      - name: Run full smoke, including startup and cleanup
+        run: python3 run.py --profile full --output results/ci --budget 120
+      - name: Upload reports and screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: smoke-artifacts
+          path: |
+            results/ci/report.json
+            results/ci/junit.xml
+            results/ci/*.log
+            results/ci/*.png
+            results/ci/*.txt
+            results/ci/browser-errors.json
+            results/ci/bazel/summary.json
+            results/ci/bazel/build-*/*.log
+            results/ci/bazel/build-*/*.json
+          retention-days: 7

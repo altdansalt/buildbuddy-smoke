@@ -106,12 +106,19 @@ def cases(ctx):
             raise AssertionError('Unsupported qualifier accepted')
 
     def directory_contract():
-        try:
-            fetch.FetchDirectory(ra.FetchDirectoryRequest(uris=[url + '/asset']), timeout=ctx.timeout)
-        except grpc.RpcError as e:
-            assert e.code() == grpc.StatusCode.UNIMPLEMENTED, str(e)
-        else:
-            raise AssertionError('FetchDirectory behavior changed; add positive coverage')
+        push = rag.PushStub(ctx.channel)
+        unsupported = [
+            (fetch.FetchDirectory, ra.FetchDirectoryRequest(uris=[url + '/asset'])),
+            (push.PushBlob, ra.PushBlobRequest(uris=[url + '/asset'], blob_digest=digest)),
+            (push.PushDirectory, ra.PushDirectoryRequest(uris=[url + '/asset'], root_directory_digest=digest)),
+        ]
+        for method, request in unsupported:
+            try:
+                method(request, timeout=ctx.timeout)
+            except grpc.RpcError as e:
+                assert e.code() == grpc.StatusCode.UNIMPLEMENTED, str(e)
+            else:
+                raise AssertionError('Unsupported asset method changed; add positive coverage')
 
     return [
         ('asset.fetch_fallback_headers_checksum_and_cas', fetch_and_read),
@@ -120,5 +127,5 @@ def cases(ctx):
         ('asset.missing_origin_response_status', not_found),
         ('asset.block_non_allowlisted_loopback', private_ip_blocked),
         ('asset.reject_unknown_qualifier', unsupported_qualifier),
-        ('asset.fetch_directory_explicitly_unimplemented', directory_contract),
+        ('asset.directory_and_push_explicitly_unimplemented', directory_contract),
     ]
