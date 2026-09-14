@@ -25,9 +25,9 @@ def _smoke_large_impl(ctx):
     ctx.actions.run_shell(
         inputs = [ctx.file.src, ctx.file.nonce],
         outputs = [out],
-        # Preserve the trailing newline stripped by command substitution. Shell
-        # builtins double the original 50-byte payload 15 times (1,638,400 bytes).
-        command = 'data="$(/bin/cat "$1")"$\'\\n\'; for ((i=0; i<15; i++)); do data="$data$data"; done; printf "%s" "$data" > "$2"',
+        # Harness writes deterministic partly compressible bytes before Bazel;
+        # this remains a real, cacheable action with an explicit nonce input.
+        command = '/bin/cat "$1" > "$2"',
         arguments = [ctx.file.src.path, out.path],
         mnemonic = "SmokeLarge",
         use_default_shell_env = False,

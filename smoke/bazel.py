@@ -24,7 +24,10 @@ from proto.api.v1 import common_pb2 as api
 VERSION = "8.4.2"
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED = b"BuildBuddy real Bazel smoke: exact cached output.\n"
-LARGE = EXPECTED * (2 ** 15)
+# Alternate independent entropy and zeros: compressible, but the compressed
+# stream still exceeds 1 MiB, forcing actual chunked ByteStream traffic.
+LARGE = b"".join(hashlib.shake_256(b"BuildBuddy chunk smoke " + i.to_bytes(4, "big")).digest(1024)
+                 + bytes(1024) for i in range(2048))
 LARGE_HASH = hashlib.sha256(LARGE).hexdigest()
 BUILD_TIMEOUT = 30
 BUILD_TARGETS = ["//:artifact", "//:receipt"]
@@ -56,8 +59,9 @@ def _log_entry_class():
                 f.type = 11
                 f.type_name = "." + kind
     p = "smoke.bazel_log."
-    msg("Read", [(1, "request", "google.bytestream.ReadRequest", False), (3, "bytes_read", 3, False)])
-    msg("Write", [(1, "resource_names", 9, True), (3, "bytes_sent", 3, False),
+    msg("Read", [(1, "request", "google.bytestream.ReadRequest", False),
+                 (2, "num_reads", 3, False), (3, "bytes_read", 3, False)])
+    msg("Write", [(1, "resource_names", 9, True), (2, "num_writes", 3, False), (3, "bytes_sent", 3, False),
                   (4, "response", "google.bytestream.WriteResponse", False)])
     msg("Action", [(1, "request", "build.bazel.remote.execution.v2.GetActionResultRequest", False),
                    (2, "response", "build.bazel.remote.execution.v2.ActionResult", False)])
@@ -128,6 +132,7 @@ def _execute(ctx, phase, verb="build", targets=None, minimal=False, exit_code=0)
         shutil.copytree(ROOT / "fixtures" / "bazel", workspace)
         nonce = str(uuid.uuid4())
         (workspace / "nonce.txt").write_text(nonce + "\n")
+        (workspace / "large-input.bin").write_bytes(LARGE)
         build = workspace / "BUILD.bazel"
         build.write_text(build.read_text().replace("SMOKE_NONCE", nonce))
         resolved = workspace / "resolved.bzl"
@@ -201,14 +206,16 @@ def _compressed_transfer(entries, direction):
             d = e.details.write
             if any(r.endswith(suffix) for r in d.resource_names):
                 assert e.status.code == 0, str(e)
-                assert 0 < d.bytes_sent < len(LARGE), "upload was not actually compressed"
-                matches.append(d.bytes_sent)
+                assert 1024 * 1024 < d.bytes_sent < len(LARGE), "compressed upload must still exceed 1 MiB"
+                assert d.num_writes > 1, "large upload was not chunked into multiple requests"
+                matches.append({"bytes": d.bytes_sent, "messages": d.num_writes})
         if direction == "read" and e.details.HasField("read"):
             d = e.details.read
             if d.request.resource_name.endswith(suffix):
                 assert e.status.code == 0, str(e)
-                assert 0 < d.bytes_read < len(LARGE), "download was not actually compressed"
-                matches.append(d.bytes_read)
+                assert 1024 * 1024 < d.bytes_read < len(LARGE), "compressed download must still exceed 1 MiB"
+                assert d.num_reads > 1, "large download was not chunked into multiple responses"
+                matches.append({"bytes": d.bytes_read, "messages": d.num_reads})
     assert matches, f"no successful compressed {direction} for the large output digest"
     return matches
 
@@ -225,7 +232,7 @@ def _run_build(ctx, phase):
         assert hits == 0, f"cold build unexpectedly hit remote cache: {text}"
         assert re.search(r"\b3 local\b", text), f"cold build did not execute all three actions: {text}"
         assert len(actions) == 3 and all(e.status.code == 5 for e in actions), "expected three AC misses"
-        item["large_compressed_upload_bytes"] = _compressed_transfer(entries, "write")
+        item["large_compressed_upload"] = _compressed_transfer(entries, "write")
     else:
         assert hits == 3, f"fresh root must report three remote cache hits: {text}"
         assert not re.search(r"\b[1-9]\d* local\b", text), f"cache build executed locally: {text}"
@@ -250,7 +257,7 @@ def _run_build(ctx, phase):
             assert actual == data, f"{name}: exact output mismatch"
             (artifacts / name).write_bytes(actual)
         if phase == 2:
-            item["large_compressed_download_bytes"] = _compressed_transfer(entries, "read")
+            item["large_compressed_download"] = _compressed_transfer(entries, "read")
     stats = None
     if inv.HasField("cache_stats") and inv.cache_stats.ListFields():
         stats = MessageToDict(inv.cache_stats, preserving_proto_field_name=True)

@@ -4,7 +4,7 @@ load(":smoke.bzl", "smoke_copy", "smoke_large", "smoke_receipt", "smoke_test")
 platform(name = "local")
 
 smoke_copy(name = "artifact", src = "payload.txt", nonce = "nonce.txt")
-smoke_large(name = "large", src = "payload.txt", nonce = "nonce.txt")
+smoke_large(name = "large", src = "large-input.bin", nonce = "nonce.txt")
 smoke_receipt(name = "receipt", src = ":large", nonce = "nonce.txt")
 
 smoke_test(name = "passing_test", exit_code = 0, nonce = "SMOKE_NONCE", size = "small")
