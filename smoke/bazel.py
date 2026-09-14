@@ -242,8 +242,9 @@ def _run_build(ctx, phase):
     if minimal:
         # Check both filesystem and wire traffic. A missing output alone could
         # hide a broken build; AC results must contain its correct digest too.
-        result_digests = {f.digest.hash: f.digest.size_bytes for e in actions
-                          for f in e.details.get_action_result.response.output_files}
+        result_files = [f for e in actions for f in e.details.get_action_result.response.output_files]
+        assert all(not f.contents for f in result_files), 'minimal build downloaded inline output bytes via AC'
+        result_digests = {f.digest.hash: f.digest.size_bytes for f in result_files}
         for name, data in expected_files.items():
             assert not (output / name).exists(), f"minimal build materialized {name}"
             assert result_digests.get(hashlib.sha256(data).hexdigest()) == len(data), f"AC omitted {name}"

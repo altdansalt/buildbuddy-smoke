@@ -1,6 +1,20 @@
 # Scope, measurements, and v2.303.0 contracts
 
-## Measured results
+## Current status after the completeness review
+
+Core now includes live/reconnected BES and late server-log inspection (62 cases).
+Full adds real passing/failing Bazel tests, Targets UI, compressed large-blob
+transfers, minimal downloads and an immediate-shutdown artifact regression.
+
+**The pinned v2.303.0 no longer receives a green full report.** The early control
+artifact survives in blob storage, but the one acknowledged immediately before
+SIGTERM does not. Its missing download and the app's late error both fail.
+See [reproduction and scope](KNOWN_ISSUES.md). There are no sleeps, error
+allowlists, expected-pass conversions or CI failure suppression for this issue.
+
+Updated measurements are recorded separately from the historical baseline below.
+
+## Historical baseline timings (before those review fixes)
 
 On September 14, 2026, with the exact release SHA256 recorded in
 [measurements.json](measurements.json):
@@ -62,9 +76,23 @@ Every sequence number and stream ID must be acknowledged.
 
 The invocation row can retain the reserved `ffff` last-chunk sentinel for a small
 completed log. Passing it as an explicit log cursor returns RESOURCE_EXHAUSTED.
-The documented empty cursor asks for the actual latest chunk; tests use it,
-assert exact durable bytes, and follow the returned cursor to assert an empty
-terminal page. No errors are suppressed or retried to make BES pass.
+The documented empty cursor asks for the actual latest durable chunk. The tests
+check both that lookup and explicit cursor `0000`, assert exact bytes and follow
+`0001` to an empty terminal page. For the live chunk, `0000` returns `live=true`
+and repeats `0000` as the next cursor while the transport/request iterator is
+still open and has received no ACKs.
+
+The disconnect case closes its HTTP/2 channel before Finished/EOF, observes
+DISCONNECTED attempt 1 and the durable log prefix, then resends identical request
+objects (same StreamId, timestamps, sequence numbers and payloads) from sequence
+1. It requires PARTIAL attempt 2, then COMPLETE attempt 2 with exactly one copy
+of each stored event/log byte. Both live/reconnected fixtures are rechecked after
+restart. Polling observes explicit asynchronous predicates under a deadline;
+failed assertions and unexpected RPC statuses are never broadly retried.
+
+These log APIs use the app's in-memory key-value store in this standalone config;
+Redis is not required. The UI streaming flag alone is not the evidence: the
+live response, cursor and exact buffer are asserted through the RPC.
 
 ### Auth must actually be enabled before testing denial
 
@@ -99,11 +127,21 @@ for a tenant-isolation test.
 
 ### Cache hits must be real, but optional statistics are not proof
 
-The real Bazel fixture has one declared shell action, a unique nonce input per
-run, no remote executor, no repositories, and separate fresh local output roots.
-Cold build: one local action and no remote hits. Second build: exactly one remote
-hit and no local action. Both must produce the exact output and complete BES
-invocations. Turning off remote-cache acceptance makes the second check fail.
+The real Bazel fixture has three shell actions, unique nonce inputs per run,
+no remote executor and separate fresh local output roots. It registers only the
+pre-extracted local Bazel runtime/platform repositories. Cold build: three local
+actions, three AC NOT_FOUND RPCs and no remote hits. Second build: three successful
+AC RPCs/remote hits, no local actions and exact output bytes. Bazel's binary gRPC
+log must show actual compressed ByteStream transfers for the large output digest.
+A third fresh-root build enables `--remote_download_minimal`; correct AC output
+digests, absent output files and no large-output read are all mandatory.
+
+A fourth `bazel test` invocation runs one passing and one failing real test. It
+must exit with TESTS_FAILED, not an arbitrary nonzero error. The app paginates
+those events into target groups, so the checks compare GetTarget's TestResult
+and TestSummary payloads/IDs with the real emitted BEP as well as requiring the
+expected per-label statuses. Chromium checks the actual Targets tab's two labels,
+counts and pass/fail groups. Invocation status alone is not sufficient evidence.
 
 This standalone configuration returns an empty cache-stat message. The harness
 records server statistics as unavailable, rather than passing an assertion on

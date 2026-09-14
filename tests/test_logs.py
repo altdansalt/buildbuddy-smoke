@@ -1,5 +1,9 @@
 """Unit regressions for server-log classification (no app dependencies)."""
+from contextlib import redirect_stdout
+import io
 import json
+import subprocess
+import time
 from pathlib import Path
 import tempfile
 import unittest
@@ -58,8 +62,9 @@ class LogHygieneTest(unittest.TestCase):
 
         with patch.object(run, 'ROOT', root), patch.object(run, 'become_subreaper'), \
              patch.object(run, 'cleanup', side_effect=cleanup), \
+             patch.object(run, 'log_hygiene_case', side_effect=lambda output, timeout: report_case(output)), \
              patch.object(run.subprocess, 'Popen', side_effect=launch), \
-             patch.object(run.signal, 'signal'), \
+             patch.object(run.signal, 'signal'), redirect_stdout(io.StringIO()), \
              patch.object(run.sys, 'argv', ['run.py', '--binary', str(binary), '--output', str(output)]):
             result = run.main()
         return result, json.loads((output / 'report.json').read_text())
@@ -76,6 +81,39 @@ class LogHygieneTest(unittest.TestCase):
         result, report = self._supervised_report([], '2026/09/14 19:41:55.184 INF done\n')
         self.assertEqual(result, 1)
         self.assertEqual(report['tests'][-1]['name'], 'supervisor')
+
+    def test_oversized_log_and_line_fail_closed(self):
+        path = self.output / 'app-1.log'
+        with path.open('wb') as stream:
+            stream.truncate(8 * 1024 * 1024 + 1)
+        self.assertIn('Incomplete inspection', report_case(self.output)['error'])
+        path.write_bytes(b'x' * (64 * 1024 + 1))
+        self.assertIn('line 1 exceeds', report_case(self.output)['error'])
+
+    def test_noisy_log_has_bounded_samples_but_counts_every_error(self):
+        (self.output / 'app-1.log').write_text('ERR failure\n' * 100)
+        result = inspect(self.output)
+        self.assertEqual(result['findings_total'], 100)
+        self.assertEqual(len(result['findings']), 20)
+        self.assertTrue(result['complete'])
+
+    def test_scanner_deadline_fails_without_ignoring_logs(self):
+        with self.assertRaises(TimeoutError):
+            run.log_hygiene_case(self.output, timeout=0)
+        # Block a real scanner subprocess; subprocess.run must kill/reap it.
+        fake_root = self.output / 'scanner-root'
+        (fake_root / 'smoke').mkdir(parents=True)
+        (fake_root / 'smoke/logs.py').write_text(
+            'import os,pathlib,sys,time\n'
+            'pathlib.Path(sys.argv[1]).joinpath("scanner.pid").write_text(str(os.getpid()))\n'
+            'time.sleep(1000)\n')
+        started = time.monotonic()
+        with patch.object(run, 'ROOT', fake_root):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                run.log_hygiene_case(self.output, timeout=.3)
+        self.assertLess(time.monotonic() - started, 2)
+        pid = int((self.output / 'scanner.pid').read_text())
+        self.assertFalse(Path(f'/proc/{pid}').exists(), 'Timed-out scanner survived')
 
     def test_missing_logs_are_not_a_passing_case(self):
         self.assertIsNone(report_case(self.output))

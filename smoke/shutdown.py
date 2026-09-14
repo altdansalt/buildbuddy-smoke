@@ -55,6 +55,15 @@ def seed(ctx, label):
     }
 
 
+def verify_original_cas(ctx):
+    """Distinguish lost blobstore persistence from losing the original CAS data."""
+    c = cache._Cache(ctx)
+    for label in ('control', 'pending'):
+        fixture = ctx.state['shutdown_artifacts'][label]
+        d = cache.re.Digest(**fixture['digest'])
+        assert c.read(d) == bytes.fromhex(fixture['data_hex']), f'{label}: original CAS bytes lost on restart'
+
+
 def select_empty_cache(ctx):
     # Configuration-level cache replacement, not deleting/mutating backend files.
     # The original cache remains intact in the artifacts for diagnosis.
@@ -67,6 +76,10 @@ def select_empty_cache(ctx):
 
 def verify(ctx, label):
     fixture = ctx.state['shutdown_artifacts'][label]
+    inv = bes.verify_invocation(ctx, fixture['invocation_id'])
+    declared = [f.uri for e in inv.event if e.build_event.WhichOneof('payload') == 'build_tool_logs'
+                for f in e.build_event.build_tool_logs.log]
+    assert declared == [fixture['uri']], f'{label}: acknowledged artifact declaration was not persisted'
     d = cache.re.Digest(**fixture['digest'])
     c = cache._Cache(ctx)
     assert list(c.missing([d]).missing_blob_digests) == [d], 'Artifact is still in CAS; fallback was not tested'

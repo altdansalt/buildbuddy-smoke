@@ -33,7 +33,13 @@ jobs:
             results/ci/*.png
             results/ci/*.txt
             results/ci/browser-errors.json
+            results/ci/log-hygiene.json
+            results/ci/fixtures.json
             results/ci/bazel/summary.json
             results/ci/bazel/build-*/*.log
             results/ci/bazel/build-*/*.json
+            results/ci/bazel/test/*.log
+            results/ci/bazel/test/*.json
+            results/ci/bazel/test/*.txt
+            results/ci/bazel/test/*.png
           retention-days: 7

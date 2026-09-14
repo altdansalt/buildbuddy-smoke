@@ -176,6 +176,8 @@ def main():
         if case('app.restart_existing_storage_ready', app.start):
             ctx.channel = grpc.insecure_channel(ctx.grpc_target)
             case('persistence.cache_and_invocation', lambda: persistence(ctx))
+            if args.profile == 'full':
+                case('persistence.shutdown_artifacts_in_original_cas', lambda: shutdown.verify_original_cas(ctx))
             case('app.restart_sigterm_exit_zero', stop_app)
         if args.profile == 'full' and case('shutdown.select_empty_cache', lambda: shutdown.select_empty_cache(ctx)):
             if case('app.fresh_cache_existing_blobstore_ready', app.start):

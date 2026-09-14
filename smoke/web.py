@@ -126,6 +126,9 @@ def browser_check(ctx):
             expect(page.locator('body')).to_contain_text('Build failed')
             expect(page.locator('body')).to_contain_text(ctx.state['failed_invocation_marker'])
             page.screenshot(path=str(ctx.output / 'invocation-failed.png'), full_page=True)
+            if ctx.profile == 'full':
+                from smoke import bazel
+                bazel.browser_targets_check(ctx, page)
             assert not errors, errors
         finally:
             (ctx.output / 'browser-errors.json').write_text(json.dumps(errors, indent=2))

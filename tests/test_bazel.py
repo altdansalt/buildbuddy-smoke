@@ -121,7 +121,7 @@ def contracts():
                 with self.subTest(mutation=mutation), self.assertRaises(AssertionError):
                     bazel._assert_test_events(events)
 
-        def minimal_run(self, temp, materialized=False, downloaded=False, wrong_digest=False):
+        def minimal_run(self, temp, materialized=False, downloaded=False, wrong_digest=False, inline=False):
             artifacts = Path(temp)
             output = artifacts / "bin"
             output.mkdir()
@@ -134,6 +134,8 @@ def contracts():
                 file = entry.details.get_action_result.response.output_files.add(path=str(index))
                 file.digest.hash = hashlib.sha256(data).hexdigest()
                 file.digest.size_bytes = len(data) + (1 if wrong_digest else 0)
+                if inline:
+                    file.contents = data
                 entries.append(entry)
             if downloaded:
                 entries.append(self.transfer("read"))
@@ -148,7 +150,7 @@ def contracts():
             with tempfile.TemporaryDirectory() as temp:
                 ctx = self.minimal_run(temp)
                 self.assertEqual(ctx.state["bazel"]["builds"][-1]["minimal_read_resources"], [])
-            for kwargs in ({"materialized": True}, {"downloaded": True}, {"wrong_digest": True}):
+            for kwargs in ({"materialized": True}, {"downloaded": True}, {"wrong_digest": True}, {"inline": True}):
                 with tempfile.TemporaryDirectory() as temp:
                     with self.subTest(kwargs=kwargs), self.assertRaises(AssertionError):
                         self.minimal_run(temp, **kwargs)

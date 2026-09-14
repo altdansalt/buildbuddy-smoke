@@ -10,9 +10,18 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 from smoke.processes import become_subreaper, cleanup
-from smoke.logs import report_case as log_hygiene_case
 
 ROOT = Path(__file__).resolve().parent
+
+
+def log_hygiene_case(output, timeout):
+    if timeout <= 0:
+        raise TimeoutError('No remaining time for complete server-log inspection')
+    result = subprocess.run([sys.executable, str(ROOT / 'smoke/logs.py'), str(output)],
+                            capture_output=True, text=True, check=True, timeout=timeout)
+    if len(result.stdout) > 200_000:
+        raise ValueError('Log scanner exceeded its bounded result size')
+    return json.loads(result.stdout)
 
 
 def main():
@@ -57,13 +66,27 @@ def main():
         signal.signal(signal.SIGINT, signal.SIG_IGN)
         survivors = cleanup(p)
     report_path = args.output / 'report.json'
-    report = json.loads(report_path.read_text()) if report_path.exists() else {'tests': []}
+    report = {'tests': []}
+    if report_path.exists():
+        try:
+            with report_path.open('rb') as stream:
+                raw = stream.read(4 * 1024 * 1024 + 1)
+            if len(raw) > 4 * 1024 * 1024:
+                report_path.rename(args.output / 'oversized-worker-report.json')
+                raise ValueError('Worker report exceeds 4 MiB; original retained separately')
+            report = json.loads(raw)
+        except (OSError, ValueError) as exc:
+            report = {'tests': [{'name': 'supervisor.worker_report', 'status': 'FAIL',
+                                  'seconds': 0, 'error': str(exc)}]}
     has_worker_tests = bool(report['tests'])
     try:
-        log_case = log_hygiene_case(args.output)
+        remaining = start + args.budget - .25 - time.monotonic()
+        log_case = log_hygiene_case(args.output, timeout=min(1.0, remaining))
     except Exception as exc:
         log_case = {'name': 'app.log_hygiene', 'status': 'FAIL', 'seconds': 0,
-                    'error': f'Could not inspect application logs: {exc}'}
+                    'error': f'Incomplete application-log inspection: {exc}'}
+        (args.output / 'log-hygiene.json').write_text(json.dumps(
+            {'complete': False, 'inspection_errors': [log_case['error']]}, indent=2) + '\n')
     if log_case:
         report['tests'].append(log_case)
         print(f"{log_case['status']:4}         {log_case['name']}")
