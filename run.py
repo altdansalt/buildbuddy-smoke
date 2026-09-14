@@ -10,6 +10,7 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 from smoke.processes import become_subreaper, cleanup
+from smoke.logs import report_case as log_hygiene_case
 
 ROOT = Path(__file__).resolve().parent
 
@@ -57,7 +58,18 @@ def main():
         survivors = cleanup(p)
     report_path = args.output / 'report.json'
     report = json.loads(report_path.read_text()) if report_path.exists() else {'tests': []}
-    if failure or not report['tests'] or (rc and not any(t['status'] == 'FAIL' for t in report['tests'])):
+    has_worker_tests = bool(report['tests'])
+    try:
+        log_case = log_hygiene_case(args.output)
+    except Exception as exc:
+        log_case = {'name': 'app.log_hygiene', 'status': 'FAIL', 'seconds': 0,
+                    'error': f'Could not inspect application logs: {exc}'}
+    if log_case:
+        report['tests'].append(log_case)
+        print(f"{log_case['status']:4}         {log_case['name']}")
+        if 'error' in log_case:
+            print(log_case['error'])
+    if failure or not has_worker_tests or (rc and not any(t['status'] == 'FAIL' for t in report['tests'])):
         report['tests'].append({'name': 'supervisor', 'status': 'FAIL', 'seconds': 0,
                                 'error': failure or f'Worker exited {rc} without a recorded test failure (or without any tests)'})
     if survivors:

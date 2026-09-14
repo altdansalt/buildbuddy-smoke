@@ -92,7 +92,7 @@ class App:
             raise AssertionError('App did not shut down within 4 seconds')
         finally:
             self.process = None
-        assert rc == 0, f'Unclean app shutdown: {rc}'
+        assert rc == 0, f'App did not exit successfully after SIGTERM: {rc}'
 
 
 def main():
@@ -128,7 +128,7 @@ def main():
     root = args.output / 'state'
     root.mkdir()
     app = App(args.binary, args.output, root)
-    ctx = SimpleNamespace(timeout=5, state={}, cleanups=[], http_url=app.http_url,
+    ctx = SimpleNamespace(timeout=5, profile=args.profile, state={}, cleanups=[], http_url=app.http_url,
                           grpc_target=f'127.0.0.1:{app.grpc}', output=args.output, app=app)
     ctx.channel = grpc.insecure_channel(ctx.grpc_target)
 
@@ -136,6 +136,9 @@ def main():
         # Every RPC has completed; release the client before testing server drain.
         # Keeping an idle HTTP/2 client open unnecessarily consumes the grace window.
         ctx.channel.close()
+        pending = ctx.state.get('shutdown_artifacts', {}).get('pending')
+        if app.generation == 1 and pending:
+            pending['ack_to_sigterm_seconds'] = round(time.monotonic() - pending['acknowledged_monotonic'], 6)
         app.stop()
 
     def fingerprint():
@@ -151,23 +154,35 @@ def main():
             return 1
         first_line = (args.output / 'app-1.log').read_text().splitlines()[0]
         report['binary_version_line'] = re.sub(r'\x1b\[[0-9;]*m', '', first_line)
-        from smoke import cache, bes, asset, web
+        from smoke import cache, bes, asset, web, shutdown
         for module in (web, cache, asset, bes):
             for name, fn in module.cases(ctx):
                 case(name, fn)
         for name, fn in web.artifact_cases(ctx):
             case(name, fn)
-        case('web.chromium_invocation_and_logs', lambda: web.browser_check(ctx))
+        if args.profile == 'full':
+            case('shutdown.seed_control_artifact', lambda: shutdown.seed(ctx, 'control'))
         if args.profile == 'full':
             from smoke import bazel
             for name, fn in bazel.cases(ctx):
                 case(name, fn)
-        case('app.graceful_shutdown', stop_app)
+        case('web.chromium_invocation_and_logs', lambda: web.browser_check(ctx))
+        if args.profile == 'full':
+            # No sleep or completion polling between this ACK and SIGTERM: test
+            # whether shutdown drains acknowledged background artifact copies.
+            case('shutdown.seed_pending_artifact', lambda: shutdown.seed(ctx, 'pending'))
+        case('app.sigterm_exit_zero', stop_app)
         ctx.channel.close()
         if case('app.restart_existing_storage_ready', app.start):
             ctx.channel = grpc.insecure_channel(ctx.grpc_target)
             case('persistence.cache_and_invocation', lambda: persistence(ctx))
-            case('app.final_graceful_shutdown', stop_app)
+            case('app.restart_sigterm_exit_zero', stop_app)
+        if args.profile == 'full' and case('shutdown.select_empty_cache', lambda: shutdown.select_empty_cache(ctx)):
+            if case('app.fresh_cache_existing_blobstore_ready', app.start):
+                ctx.channel = grpc.insecure_channel(ctx.grpc_target)
+                case('persistence.control_artifact_without_cas', lambda: shutdown.verify(ctx, 'control'))
+                case('persistence.shutdown_artifact_without_cas', lambda: shutdown.verify(ctx, 'pending'))
+                case('app.fresh_cache_sigterm_exit_zero', stop_app)
         from smoke import auth
         config = json.loads(app.config.read_text())
         config['auth'] = {'enable_anonymous_usage': False, 'enable_self_auth': True,
@@ -178,7 +193,7 @@ def main():
             ctx.channel = grpc.insecure_channel(ctx.grpc_target)
             for name, fn in auth.cases(ctx):
                 case(name, fn)
-            case('app.strict_auth_shutdown', stop_app)
+            case('app.strict_auth_sigterm_exit_zero', stop_app)
     except Exception:
         def failed():
             raise RuntimeError(traceback_text)
