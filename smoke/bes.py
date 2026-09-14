@@ -256,18 +256,20 @@ def _publish_and_verify(ctx, success):
         assert response.stream_id == requests[0].ordered_build_event.stream_id, (
             f"BES ACK {response.sequence_number} has the wrong stream ID"
         )
-    verify_invocation(ctx, invocation_id, success)
+    # Publishing and UI/restart coverage should remain independent from API
+    # assertions: retain acknowledged invocation IDs even if verification fails.
     key = "invocation_id" if success else "failed_invocation_id"
     ctx.state[key] = invocation_id
     marker_key = "invocation_marker" if success else "failed_invocation_marker"
     ctx.state[marker_key] = fixture["marker"]
     ctx.state.setdefault("bes_invocations", {})[invocation_id] = success
+    verify_invocation(ctx, invocation_id, success)
 
 
 def verify_persisted(ctx):
     """Parent restart case can reuse every assertion without publishing again."""
     invocations = ctx.state.get("bes_invocations", {})
-    assert len(invocations) == 2, "both BES fixtures must pass before the restart check"
+    assert len(invocations) == 2, "both BES fixtures must be published before the restart check"
     for invocation_id, success in invocations.items():
         verify_invocation(ctx, invocation_id, success)
 

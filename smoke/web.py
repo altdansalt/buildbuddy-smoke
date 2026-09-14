@@ -62,7 +62,7 @@ def browser_check(ctx):
             expect(page.locator('body')).to_contain_text(ctx.state['invocation_marker'])
             page.screenshot(path=str(ctx.output / 'invocation-success.png'), full_page=True)
             page.goto(ctx.http_url + '/invocation/' + ctx.state['failed_invocation_id'], wait_until='domcontentloaded')
-            expect(page.locator('body')).to_contain_text('Failed')
+            expect(page.locator('body')).to_contain_text('Build failed')
             expect(page.locator('body')).to_contain_text(ctx.state['failed_invocation_marker'])
             page.screenshot(path=str(ctx.output / 'invocation-failed.png'), full_page=True)
             assert not errors, errors

@@ -2,6 +2,7 @@
 import base64
 import hashlib
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import grpc
@@ -52,7 +53,20 @@ def cases(ctx):
         assert got == data, 'Remote Asset CAS bytes differ from HTTP body'
 
     def fetch_and_read():
-        r = call([url + '/missing', url + '/asset'], [checksum, ra.Qualifier(name='http_header:X-Smoke', value='origin-proof')])
+        # The app's own gRPC client starts dialing before its listener exists.
+        # /readyz can precede its reconnect. Permit only this known transport
+        # warm-up, within a fixed 3s window; never retry assertion/data errors.
+        deadline = time.monotonic() + 3
+        attempts = 0
+        while True:
+            requests.clear()
+            r = call([url + '/missing', url + '/asset'], [checksum, ra.Qualifier(name='http_header:X-Smoke', value='origin-proof')])
+            attempts += 1
+            transient = r.status.code == 5 and 'code = Unavailable' in r.status.message and 'connection refused' in r.status.message
+            if not transient or time.monotonic() >= deadline:
+                break
+            time.sleep(.05)
+        ctx.state['asset_startup_attempts'] = attempts
         verify(r)
         assert r.uri == url + '/asset', str(r)
         assert requests == [('/missing', 'origin-proof'), ('/asset', 'origin-proof')], requests
@@ -60,14 +74,17 @@ def cases(ctx):
     def reuse_without_origin():
         before = len(requests)
         disabled[0] = True
-        verify(call([url + '/asset'], [checksum]))
-        assert len(requests) == before, 'Checksum cache hit contacted origin'
-        disabled[0] = False
+        try:
+            verify(call([url + '/asset'], [checksum]))
+            assert len(requests) == before, 'Checksum cache hit contacted origin'
+        finally:
+            disabled[0] = False
 
     def bad_checksum():
         wrong = hashlib.sha256(b'wrong asset').digest()
         r = call([url + '/asset'], [ra.Qualifier(name='checksum.sri', value='sha256-' + base64.b64encode(wrong).decode())])
-        assert r.status.code == 5, str(r)  # v2.303.0 encodes fetch failures in response.status.
+        assert r.status.code == 5 and ('checksum' in r.status.message or 'digest' in r.status.message), str(r)
+        assert requests[-1] == ('/asset', None), requests
         missing = re.Digest(hash=wrong.hex(), size_bytes=len(data))
         got = cas.FindMissingBlobs(re.FindMissingBlobsRequest(instance_name='asset-smoke', blob_digests=[missing]), timeout=ctx.timeout)
         assert list(got.missing_blob_digests) == [missing], str(got)
