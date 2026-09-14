@@ -39,7 +39,7 @@ versions are pinned. Bazel's embedded JDK is unpacked during setup.
 
 ```sh
 python3 run.py --budget 30 --output results/my-run
-python3 -m unittest discover -s tests -v  # harness deadline/failure regression tests
+python3 -m unittest discover -s tests -v  # includes an active-Chromium timeout test
 ```
 
 The output directory must not already exist. `--budget` accepts 5–120 seconds.
@@ -85,8 +85,9 @@ silently skip tests. Known unsupported contracts are called out below.
   app starts, persistence, shutdown and cleanup are inside the budget. Download,
   package installation and protobuf generation are **setup**, outside it.
 - RPCs normally have 5s deadlines; each Bazel build has a 30s ceiling. The outer
-  supervisor terminates the entire worker/app/browser/Bazel process group before
-  the budget expires. The budget reserves 3s for cleanup/reporting. Exit 124 means
+  supervisor uses Linux child-subreaper adoption and bounded TERM/KILL/reaping
+  of the whole descendant tree, including detached Chromium processes. The budget
+  reserves 3s for cleanup/reporting. Exit 124 means
   budget exceeded, exit 1 means failed assertions, exit 0 means all selected
   checks passed.
 - Test data is retained in the ignored output directory for debugging. Delete

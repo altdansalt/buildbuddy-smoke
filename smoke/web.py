@@ -83,7 +83,18 @@ def artifact_cases(ctx):
             query = urlencode({'invocation_id': iid, 'artifact': 'raw_json'})
             with urlopen(ctx.http_url + '/file/download?' + query, timeout=ctx.timeout) as r:
                 events = json.load(r)
-            assert iid in json.dumps(events), 'Raw-event export missing invocation UUID'
+            from google.protobuf.json_format import ParseDict
+            from proto import build_event_stream_pb2 as bep
+            assert isinstance(events, list) and len(events) >= 4, 'Raw export is not a build-event array'
+            decoded = [ParseDict(event, bep.BuildEvent()) for event in events]
+            started = [e.started for e in decoded if e.WhichOneof('payload') == 'started']
+            finished = [e.finished for e in decoded if e.WhichOneof('payload') == 'finished']
+            metadata = [e.build_metadata for e in decoded if e.WhichOneof('payload') == 'build_metadata']
+            assert len(started) == len(finished) == len(metadata) == 1
+            assert started[0].uuid == iid and started[0].command == 'build'
+            assert finished[0].exit_code.code == (0 if success else 1)
+            assert finished[0].exit_code.name == ('SUCCESS' if success else 'BUILD_FAILURE')
+            assert metadata[0].metadata['SMOKE_MARKER'] == bes._fixture(iid, success)['marker']
 
     return [('web.download_and_view_cas_artifact', download_cache),
             ('web.download_build_logs_and_raw_events', download_logs)]

@@ -20,7 +20,7 @@ class SupervisorTest(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         root = Path(temp.name)
         binary = root / 'fake-app'
-        binary.write_text('#!/usr/bin/python3\n' + code)
+        binary.write_text(f'#!{ROOT / ".venv/bin/python"}\n' + code)
         binary.chmod(0o755)
         output = root / 'result'
         start = time.monotonic()
@@ -54,6 +54,40 @@ class SupervisorTest(unittest.TestCase):
                 'import os\nprint(os.environ.get("PYTHONOPTIMIZE"), flush=True)\nraise SystemExit(17)\n')
         self.assertEqual(result.returncode, 1)
         self.assertEqual((output / 'app-1.log').read_text().strip(), '0')
+        self.assertEqual(report['failed'], 1)
+
+    def test_detached_child_ignoring_sigterm_is_killed(self):
+        code = ('import os,signal,time\n'
+                'child=os.fork()\n'
+                'if child == 0:\n'
+                '    os.setsid()\n'
+                '    signal.signal(signal.SIGTERM, signal.SIG_IGN)\n'
+                '    print(os.getpid(), flush=True)\n'
+                'time.sleep(1000)\n')
+        result, report, output, elapsed = self.run_fake(code, budget=5)
+        self.assertEqual(result.returncode, 124, result.stdout + result.stderr)
+        self.assertLess(elapsed, 5)
+        pid = int((output / 'app-1.log').read_text().strip())
+        self.assertFalse(Path(f'/proc/{pid}').exists(), 'Detached child was not killed and reaped')
+        self.assertEqual(report['failed'], 1)
+
+    def test_deadline_kills_and_reaps_active_chromium(self):
+        code = ('import json,os,time\n'
+                'from smoke.processes import descendants\n'
+                'from playwright.sync_api import sync_playwright\n'
+                'p=sync_playwright().start()\n'
+                'browser=p.chromium.launch(headless=True)\n'
+                'page=browser.new_page()\n'
+                'page.set_content("<title>active-timeout-test</title>")\n'
+                'print(json.dumps(list(descendants(os.getpid()))), flush=True)\n'
+                'time.sleep(1000)\n')
+        result, report, output, elapsed = self.run_fake(code, budget=8)
+        self.assertEqual(result.returncode, 124, result.stdout + result.stderr)
+        self.assertLess(elapsed, 8)
+        pids = json.loads((output / 'app-1.log').read_text().splitlines()[0])
+        self.assertGreaterEqual(len(pids), 3, 'Chromium was not running before the deadline')
+        for pid in pids:
+            self.assertFalse(Path(f'/proc/{pid}').exists(), f'Chromium descendant {pid} not killed/reaped')
         self.assertEqual(report['failed'], 1)
 
     def test_budget_cannot_exceed_two_minutes(self):

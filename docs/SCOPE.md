@@ -29,6 +29,15 @@ no escaped live app/browser/Bazel processes for that run. A crashing fake binary
 and a hanging fake binary are also tested by `tests/test_supervisor.py`; those
 must produce failure, never a false green.
 
+A subsequent review identified Playwright's detached Chromium process group as
+a cleanup gap. The supervisor now registers as a Linux child subreaper and
+cleans up/reaps the entire descendant tree across process groups. Two additional
+regressions force timeout with **a detached child ignoring SIGTERM** and with
+**Chromium actively running**; both require those PIDs to disappear. All six
+harness regressions pass. The hardened full suite passed again in **9.908s**.
+Raw-event downloads now validate decoded Started, Finished and BuildMetadata
+payloads, not merely the presence of an invocation UUID in arbitrary JSON.
+
 ## Compatibility decisions worth knowing
 
 ### HTTP readiness is not every internal client being ready

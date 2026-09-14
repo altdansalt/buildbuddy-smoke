@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 import xml.etree.ElementTree as ET
+from smoke.processes import become_subreaper, cleanup
 
 ROOT = Path(__file__).resolve().parent
 
@@ -33,8 +34,13 @@ def main():
     env['PYTHONPATH'] = str(ROOT / 'generated') + os.pathsep + str(ROOT)
     env['PYTHONUNBUFFERED'] = '1'
     env['PYTHONOPTIMIZE'] = '0'  # Never allow the caller's environment to disable assertions.
+    become_subreaper()
     p = subprocess.Popen([str(python), '-m', 'smoke.runner', '--binary', str(args.binary.resolve()),
                           '--output', str(args.output), '--profile', args.profile], env=env, start_new_session=True)
+    def interrupted(signum, frame):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, interrupted)
     failure = None
     try:
         rc = p.wait(timeout=max(.01, args.budget - 3 - (time.monotonic() - start)))
@@ -45,25 +51,18 @@ def main():
         failure = 'Interrupted by user'
         rc = 130
     finally:
-        # Kill the entire session's process group, including orphaned app/browser children.
-        try:
-            os.killpg(p.pid, signal.SIGTERM)
-            p.wait(timeout=1)
-        except ProcessLookupError:
-            pass
-        except subprocess.TimeoutExpired:
-            pass
-        finally:
-            try:
-                os.killpg(p.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            p.wait()
+        # Chromium calls setsid(): process groups alone cannot contain it.
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        survivors = cleanup(p)
     report_path = args.output / 'report.json'
     report = json.loads(report_path.read_text()) if report_path.exists() else {'tests': []}
     if failure or not report['tests'] or (rc and not any(t['status'] == 'FAIL' for t in report['tests'])):
         report['tests'].append({'name': 'supervisor', 'status': 'FAIL', 'seconds': 0,
                                 'error': failure or f'Worker exited {rc} without a recorded test failure (or without any tests)'})
+    if survivors:
+        report['tests'].append({'name': 'supervisor.cleanup', 'status': 'FAIL', 'seconds': 0,
+                                'error': f'Child processes survived SIGKILL: {survivors}'})
     report['elapsed_seconds'] = round(time.monotonic() - start, 3)
     report['profile'] = args.profile
     report['budget_seconds'] = args.budget
