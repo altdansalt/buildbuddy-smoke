@@ -1,12 +1,10 @@
-"""A single cacheable action; no language toolchains or external repositories."""
+"""Cacheable shell actions and real tests; no external rules or toolchains."""
 
 def _smoke_copy_impl(ctx):
     out = ctx.actions.declare_file(ctx.label.name + ".txt")
     ctx.actions.run_shell(
         inputs = [ctx.file.src, ctx.file.nonce],
         outputs = [out],
-        # nonce forces a cache miss on independent runs, but stays identical for
-        # the two builds within a run. The actual output has fixed exact bytes.
         command = '/bin/cat "$1" > "$2"',
         arguments = [ctx.file.src.path, out.path],
         mnemonic = "SmokeCopy",
@@ -20,4 +18,65 @@ smoke_copy = rule(
         "src": attr.label(allow_single_file = True, mandatory = True),
         "nonce": attr.label(allow_single_file = True, mandatory = True),
     },
+)
+
+def _smoke_large_impl(ctx):
+    out = ctx.actions.declare_file(ctx.label.name + ".txt")
+    ctx.actions.run_shell(
+        inputs = [ctx.file.src, ctx.file.nonce],
+        outputs = [out],
+        # Preserve the trailing newline stripped by command substitution. Shell
+        # builtins double the original 50-byte payload 15 times (1,638,400 bytes).
+        command = 'data="$(/bin/cat "$1")"$\'\\n\'; for ((i=0; i<15; i++)); do data="$data$data"; done; printf "%s" "$data" > "$2"',
+        arguments = [ctx.file.src.path, out.path],
+        mnemonic = "SmokeLarge",
+        use_default_shell_env = False,
+    )
+    return [DefaultInfo(files = depset([out]))]
+
+smoke_large = rule(
+    implementation = _smoke_large_impl,
+    attrs = {
+        "src": attr.label(allow_single_file = True, mandatory = True),
+        "nonce": attr.label(allow_single_file = True, mandatory = True),
+    },
+)
+
+def _smoke_receipt_impl(ctx):
+    out = ctx.actions.declare_file(ctx.label.name + ".txt")
+    ctx.actions.run_shell(
+        inputs = [ctx.file.src, ctx.file.nonce],
+        outputs = [out],
+        # Reading stdin keeps the receipt independent of output-root paths.
+        command = '/usr/bin/sha256sum < "$1" > "$2"',
+        arguments = [ctx.file.src.path, out.path],
+        mnemonic = "SmokeReceipt",
+        use_default_shell_env = False,
+    )
+    return [DefaultInfo(files = depset([out]))]
+
+smoke_receipt = rule(
+    implementation = _smoke_receipt_impl,
+    attrs = {
+        "src": attr.label(allow_single_file = True, mandatory = True),
+        "nonce": attr.label(allow_single_file = True, mandatory = True),
+    },
+)
+
+def _smoke_test_impl(ctx):
+    out = ctx.actions.declare_file(ctx.label.name + ".sh")
+    # No sh_test/rules_shell, toolchain, interpreter lookup or external runfiles.
+    ctx.actions.write(
+        output = out,
+        content = "#!/bin/bash\nprintf '%%s\\n' 'SMOKE_REAL_TEST %s %s'\nexit %d\n" % (
+            ctx.label.name, ctx.attr.nonce, ctx.attr.exit_code,
+        ),
+        is_executable = True,
+    )
+    return [DefaultInfo(executable = out)]
+
+smoke_test = rule(
+    implementation = _smoke_test_impl,
+    test = True,
+    attrs = {"exit_code": attr.int(), "nonce": attr.string()},
 )

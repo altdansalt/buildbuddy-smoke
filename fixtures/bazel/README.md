@@ -1,26 +1,93 @@
-# Offline real-Bazel fixture
+# Offline real-Bazel fixtures
 
-`smoke/bazel.py` copies this workspace to the run artifacts and changes only
-`nonce.txt` once per pair of builds. `SmokeCopy` is one real cacheable shell
-action whose declared nonce input guarantees a cold first action-cache lookup.
-The output is always the exact bytes of `payload.txt`.
+`smoke/bazel.py` copies this workspace into the run artifacts. A UUID in
+`nonce.txt` changes action keys once per run, but remains identical across the
+three cache builds. The harness also substitutes that UUID in the test scripts
+and the pre-extracted Bazel installation path in `resolved.bzl`.
 
-Bazel 8.4.2 must use the harness's flags: disabling Bzlmod and autoload alone is
-insufficient because Bazel's default WORKSPACE suffix loads language rules.
-`--experimental_resolved_file_instead_of_workspace=resolved.bzl` replaces that
-initialization with **zero repositories**, while `//:local` replaces the default
-host and target platforms. `--repository_disable_download` fails closed on any
-accidental repository download. No compiler, system Java, external toolchain,
-registry, or internet access is needed during builds; `/bin/bash` and `/bin/cat`
-are the only action tools. Bazel's bundled JDK is extracted during setup.
+## No downloaded rules or toolchains
 
-Both builds use `--batch` and distinct output-user-root directories. Sharing the
-read-only installation is not sharing a local action cache. The first build
-must log a local action; the second must log exactly one remote cache hit and
-no local actions. Exact output bytes and fully ingested successful BES
-invocations are checked for both. Nonempty server cache statistics are checked
-as additional evidence; the standalone server may expose an empty stats message
-when it has no collector, so those counters are explicitly reported unavailable.
+Bazel 8.4.2 uses `--enable_bzlmod=false`, empty external autoloads,
+`--repository_disable_download`, and
+`--experimental_resolved_file_instead_of_workspace=resolved.bzl`. Replacing the
+normal WORKSPACE initialization prevents eager loading of rules_cc/rules_java.
+The only registered repositories point to **already extracted files in the
+pinned Bazel installation**: `embedded_tools` (Bazel's native test launcher/XML
+scripts) and `platforms` (constraints required by the launcher's Windows select).
+They do not download anything. `//:local` replaces the host and target platforms.
 
-Artifacts include commands, combined output logs, JSON build-event files,
-Bazel JSON profiles, fetched invocation JSON, and an aggregate summary.
+The real `smoke_test` is a custom Starlark `rule(test = True)` that writes an
+executable `/bin/bash` script with an explicit exit code. It does not use
+`sh_test`, rules_shell, a language toolchain, or external runfiles. Bazel's own
+bundled test launcher remains in use, so these are actual test actions producing
+real testResult and testSummary events, not synthetic BES messages. Shell builds
+use `/bin/bash`, `/bin/cat`, and `/usr/bin/sha256sum`; Bazel's bundled launcher also
+uses standard Linux utilities. No system Java/compiler, registry, or internet
+access is needed. Setup extracts the bundled JDK and runtime outside the budget.
+
+## Four fresh-root executions
+
+Every invocation uses `--batch` and a distinct, initially nonexistent
+`output_user_root`. The installation is shared read-only, never a local action
+cache. All commands enable real Bazel `--remote_cache_compression`.
+
+1. **Cold build:** `//:artifact` copies the original exact 50-byte payload;
+   `//:large` repeats it 32,768 times (1,638,400 bytes, over 1 MiB); `//:receipt`
+   reads that intermediate and writes its SHA256. Require three actual AC
+   NOT_FOUND RPCs, three local actions, zero remote hits, exact output bytes, and
+   a successful zstd ByteStream upload for the large output's precise digest.
+2. **Full download hit:** same targets, new local root. Require three successful
+   AC RPCs, three remote hits, zero local actions, exact bytes for all outputs,
+   and a successful zstd ByteStream read of that same large digest. Compressed
+   bytes sent/read must each be positive and smaller than the original output.
+3. **Minimal download hit:** same targets, another new root, this time with
+   `--remote_download_minimal`. Require three AC hits and zero local actions.
+   All three output files must be **absent**, while their exact digest/size pairs
+   remain present in the returned ActionResults. The gRPC log must contain no
+   ByteStream read of the large intermediate. This proves behavior, not just
+   that a flag appeared in the command.
+4. **Real tests:** `bazel test //:passing_test //:failing_test`, a fourth fresh
+   root, disabled test-result caching. Exit **3 / TESTS_FAILED is expected**.
+   Validate both labels' emitted result AND summary events, log-output metadata,
+   and exactly one run each. Fetch the completed invocation through app RPC and
+   require the expected failed-test exit status. Fetch each label via GetTarget,
+   require its PASSED/FAILED target status, and compare the ingested testResult
+   payload/ID and testSummary using exact protobuf equality with Bazel's
+   emitted BEP. GetInvocation deliberately paginates these events into target
+   groups, so testing only `inv.event` would incorrectly report missing tests.
+
+Server cache statistics, when populated, must agree with cold/hit behavior.
+The standalone server can expose an empty cache-stats message; it is recorded as
+unavailable, never substituted for mandatory client-side RPC and action evidence.
+
+## Browser integration and artifacts
+
+After `bazel.cases(ctx)`, call **`bazel.browser_targets_check(ctx, page)`** inside
+the existing browser session. It reuses the page's offline routing/error capture
+and does not close the page or browser. It opens the real test invocation's
+Targets tab and requires the failing card to contain exactly `//:failing_test`
+and “1 test failed”, and the passing-test card to contain exactly
+`//:passing_test` and “1 test passed”. Merely seeing a failed invocation is not
+enough. DOM and screenshot are saved even if a browser assertion fails.
+
+`bazel/summary.json` records execution times, UUIDs, roots, hits, transferred byte
+counts, the large digest/size, minimal absent outputs/read resources, and test
+statuses. Each execution retains its command, combined Bazel log, local BEP,
+profile, binary remote gRPC log, and fetched invocation. Cache builds additionally
+save a decoded gRPC JSON projection; full-download builds save all three output
+files. `bazel/test/` holds both GetTarget responses and
+`targets-browser.{txt,png}`. The projection follows the pinned Bazel
+`src/main/protobuf/remote_execution_log.proto` field numbers, referenced directly
+in the parser; it uses existing protobuf descriptors, not runtime protoc.
+
+Harness regressions: `.venv/bin/python -m unittest discover -s tests -p test_bazel.py`.
+These include negative checks for missing/swapped/cached test events, missing
+compressed transfer evidence, malformed gRPC framing, and minimal-mode regressions
+(downloaded/materialized outputs or incorrect AC metadata).
+
+Observed full runner validation: `results/bazel-expanded-final`, 17.77 seconds
+with a 30-second supervisor budget;
+all four Bazel cases and the reused Chromium Targets check passed. The full
+profile correctly remained red for the independent pending-artifact persistence
+404 and its strict server ERR. No sleeps or artifact-persistence disabling were
+introduced to hide those failures.
