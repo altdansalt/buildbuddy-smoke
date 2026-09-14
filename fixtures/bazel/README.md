@@ -49,9 +49,10 @@ cache. All commands enable real Bazel `--remote_cache_compression`.
 3. **Minimal download hit:** same targets, another new root, this time with
    `--remote_download_minimal`. Require three AC hits and zero local actions.
    All three output files must be **absent**, while their exact digest/size pairs
-   remain present in the returned ActionResults. The gRPC log must contain no
-   ByteStream read of the large intermediate. This proves behavior, not just
-   that a flag appeared in the command.
+   remain present in the returned ActionResults. Inline output `contents` must
+   also be empty (an AC response must not hide a download). The gRPC log must
+   contain no ByteStream read of the large intermediate. This proves behavior,
+   not just that a flag appeared in the command.
 4. **Real tests:** `bazel test //:passing_test //:failing_test`, a fourth fresh
    root, disabled test-result caching. Exit **3 / TESTS_FAILED is expected**.
    Validate both labels' emitted result AND summary events, log-output metadata,

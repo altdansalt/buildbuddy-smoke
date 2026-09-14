@@ -157,5 +157,140 @@
     "exit_code": 124,
     "interrupted_phase": "bazel.cold_build_upload_and_bes",
     "live_processes_remaining": 0
+  },
+  "historical_note": "The original runs above predate strict late-log and shutdown-artifact checks. Their green results do not establish clean shutdown. See post_review and docs/KNOWN_ISSUES.md.",
+  "post_review": {
+    "date": "2026-09-14",
+    "test_commit": "bc9386c558756a6b7a7bdcc1830fc870c53d4af5",
+    "binary_sha256": "1ea34ea814bd4a21021f4b0698cad6d726cce7e1843c88bda921c16a6ab73fd3",
+    "machine": {
+      "platform": "Linux-6.12.93-x86_64-with-glibc2.39",
+      "python": "3.12.3",
+      "cpu_count": 8,
+      "app_gomaxprocs": 4
+    },
+    "runs": [
+      {
+        "profile": "core",
+        "cases": 62,
+        "passed": 62,
+        "failed": 0,
+        "total_seconds": 4.649,
+        "budget_seconds": 30.0,
+        "failures": []
+      },
+      {
+        "profile": "full",
+        "cases": 74,
+        "passed": 72,
+        "failed": 2,
+        "total_seconds": 17.678,
+        "budget_seconds": 30.0,
+        "failures": [
+          "persistence.shutdown_artifact_without_cas",
+          "app.log_hygiene"
+        ]
+      }
+    ],
+    "harness_regressions": {
+      "top_level_tests": 17,
+      "failures": 0,
+      "seconds": 12.339,
+      "note": "Bazel and BES are wrapper tests, each containing 7 contract checks executed in the pinned venv."
+    },
+    "bazel_evidence": [
+      {
+        "phase": "build-1",
+        "seconds": 2.93,
+        "invocation_id": "cdca33a3-c568-4b93-abd4-3d97cb3a914d",
+        "exit_code": 0,
+        "large_compressed_upload": [
+          {
+            "bytes": 2161316,
+            "messages": 132
+          }
+        ],
+        "remote_cache_hits": 0,
+        "cache_stats": null,
+        "large_sha256": "3d05e8205a65354a8d26c6b673fae7dcae87d0eeee2708ecf522d7020e77b5fd",
+        "large_size_bytes": 4194304
+      },
+      {
+        "phase": "build-2",
+        "seconds": 2.8306,
+        "invocation_id": "6b20677e-723d-405f-a3f1-d4b33b86e303",
+        "exit_code": 0,
+        "large_compressed_download": [
+          {
+            "bytes": 2104273,
+            "messages": 9
+          }
+        ],
+        "remote_cache_hits": 3,
+        "cache_stats": null,
+        "large_sha256": "3d05e8205a65354a8d26c6b673fae7dcae87d0eeee2708ecf522d7020e77b5fd",
+        "large_size_bytes": 4194304
+      },
+      {
+        "phase": "build-3",
+        "seconds": 2.7796,
+        "invocation_id": "013a17c7-b990-4710-959a-63ef380ff14e",
+        "exit_code": 0,
+        "minimal_absent_outputs": [
+          "artifact.txt",
+          "large.txt",
+          "receipt.txt"
+        ],
+        "minimal_read_resources": [],
+        "remote_cache_hits": 3,
+        "cache_stats": null,
+        "large_sha256": "3d05e8205a65354a8d26c6b673fae7dcae87d0eeee2708ecf522d7020e77b5fd",
+        "large_size_bytes": 4194304
+      },
+      {
+        "phase": "test",
+        "seconds": 3.1321,
+        "invocation_id": "21be60f1-718f-4508-bccf-ff996e7024e3",
+        "exit_code": 3,
+        "test_results": {
+          "//:passing_test": "PASSED",
+          "//:failing_test": "FAILED"
+        }
+      }
+    ],
+    "shutdown_evidence": {
+      "ack_to_sigterm_seconds": 0.000791,
+      "original_cas_bytes_after_restart": "PASS",
+      "control_blobstore_fallback": "PASS",
+      "pending_blobstore_fallback": "FAIL: HTTP 404",
+      "late_server_error": "Failed to stream to blobstore"
+    },
+    "deadline_probe": {
+      "budget_seconds": 7,
+      "exit_code": 124,
+      "total_seconds": 4.583,
+      "interrupted_phase": "first Bazel build",
+      "live_processes_remaining": 0
+    },
+    "ci": {
+      "run_url": "https://github.com/altdansalt/buildbuddy-smoke/actions/runs/34895546324",
+      "test_commit": "bc9386c558756a6b7a7bdcc1830fc870c53d4af5",
+      "cases": 74,
+      "passed": 72,
+      "failed": 2,
+      "total_seconds": 17.667,
+      "failures": [
+        "persistence.shutdown_artifact_without_cas",
+        "app.log_hygiene"
+      ],
+      "machine": {
+        "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+        "python": "3.12.14",
+        "cpu_count": 2,
+        "app_gomaxprocs": 4
+      },
+      "harness_tests_passed": 17,
+      "conclusion": "failure (not suppressed)"
+    }
   }
 }

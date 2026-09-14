@@ -12,7 +12,14 @@ SIGTERM does not. Its missing download and the app's late error both fail.
 See [reproduction and scope](KNOWN_ISSUES.md). There are no sleeps, error
 allowlists, expected-pass conversions or CI failure suppression for this issue.
 
-Updated measurements are recorded separately from the historical baseline below.
+Latest local validation: **core 62 passed in 4.649s; full 72 passed / 2 failed in
+17.678s**. All 17 top-level harness regressions pass. The 7-second deadline probe
+stopped a real Bazel build in 4.583s with exit 124 and no surviving processes.
+Machine/commit provenance and wire evidence are in `post_review` in
+[measurements.json](measurements.json), separate from the historical baseline.
+GitHub Actions on a fresh 2-CPU runner independently reproduced **72 passed / 2
+failed in 17.667s**, with all 17 harness regressions passing. Its failing conclusion
+is preserved rather than masked as expected success (run `34895546324`).
 
 ## Historical baseline timings (before those review fixes)
 
@@ -132,9 +139,12 @@ no remote executor and separate fresh local output roots. It registers only the
 pre-extracted local Bazel runtime/platform repositories. Cold build: three local
 actions, three AC NOT_FOUND RPCs and no remote hits. Second build: three successful
 AC RPCs/remote hits, no local actions and exact output bytes. Bazel's binary gRPC
-log must show actual compressed ByteStream transfers for the large output digest.
+log must show actual compressed ByteStream transfers for the **4 MiB** output
+digest: compressed size over 1 MiB and more than one write/read message. The latest
+run sent 2,161,316 bytes in 132 writes and read 2,104,273 bytes in 9 responses.
 A third fresh-root build enables `--remote_download_minimal`; correct AC output
-digests, absent output files and no large-output read are all mandatory.
+digests, absent output files, empty inline contents and no large-output read are
+all mandatory.
 
 A fourth `bazel test` invocation runs one passing and one failing real test. It
 must exit with TESTS_FAILED, not an arbitrary nonzero error. The app paginates
