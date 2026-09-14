@@ -32,6 +32,7 @@ def main():
     env = os.environ.copy()
     env['PYTHONPATH'] = str(ROOT / 'generated') + os.pathsep + str(ROOT)
     env['PYTHONUNBUFFERED'] = '1'
+    env['PYTHONOPTIMIZE'] = '0'  # Never allow the caller's environment to disable assertions.
     p = subprocess.Popen([str(python), '-m', 'smoke.runner', '--binary', str(args.binary.resolve()),
                           '--output', str(args.output), '--profile', args.profile], env=env, start_new_session=True)
     failure = None
@@ -60,9 +61,9 @@ def main():
             p.wait()
     report_path = args.output / 'report.json'
     report = json.loads(report_path.read_text()) if report_path.exists() else {'tests': []}
-    if failure or (rc and not any(t['status'] == 'FAIL' for t in report['tests'])):
+    if failure or not report['tests'] or (rc and not any(t['status'] == 'FAIL' for t in report['tests'])):
         report['tests'].append({'name': 'supervisor', 'status': 'FAIL', 'seconds': 0,
-                                'error': failure or f'Worker exited {rc}'})
+                                'error': failure or f'Worker exited {rc} without a recorded test failure (or without any tests)'})
     report['elapsed_seconds'] = round(time.monotonic() - start, 3)
     report['profile'] = args.profile
     report['budget_seconds'] = args.budget

@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -46,6 +47,14 @@ class SupervisorTest(unittest.TestCase):
         pid = int((output / 'app-1.log').read_text().strip())
         stat = Path(f'/proc/{pid}/stat')
         self.assertTrue(not stat.exists() or stat.read_text().split()[2] == 'Z', 'Timed-out app still running')
+
+    def test_inherited_python_optimization_cannot_disable_assertions(self):
+        with patch.dict(os.environ, {'PYTHONOPTIMIZE': '1'}):
+            result, report, output, _ = self.run_fake(
+                'import os\nprint(os.environ.get("PYTHONOPTIMIZE"), flush=True)\nraise SystemExit(17)\n')
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual((output / 'app-1.log').read_text().strip(), '0')
+        self.assertEqual(report['failed'], 1)
 
     def test_budget_cannot_exceed_two_minutes(self):
         result = subprocess.run([sys.executable, str(ROOT / 'run.py'), '--budget', '121'],

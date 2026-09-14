@@ -1,0 +1,161 @@
+{
+  "date": "2026-09-14",
+  "binary_sha256": "1ea34ea814bd4a21021f4b0698cad6d726cce7e1843c88bda921c16a6ab73fd3",
+  "test_commit": "8ec8359db0fbd98f310ba1065fb4780b1dccc2bc",
+  "machine": {
+    "platform": "Linux-6.12.93-x86_64-with-glibc2.39",
+    "python": "3.12.3",
+    "cpu_count": 8,
+    "app_gomaxprocs": 4
+  },
+  "runs": [
+    {
+      "profile": "core",
+      "cases": 59,
+      "failures": 0,
+      "total_seconds": 4.766,
+      "phase_seconds": {
+        "app": 0.903,
+        "web": 2.5603,
+        "cache": 0.0709,
+        "asset": 0.8376,
+        "bes": 0.0213,
+        "bazel": 0,
+        "auth": 0.0718,
+        "persistence": 0.0089
+      }
+    },
+    {
+      "profile": "core",
+      "cases": 59,
+      "failures": 0,
+      "total_seconds": 5.093,
+      "phase_seconds": {
+        "app": 0.8872,
+        "web": 2.9364,
+        "cache": 0.0876,
+        "asset": 0.8213,
+        "bes": 0.0195,
+        "bazel": 0,
+        "auth": 0.0692,
+        "persistence": 0.0099
+      }
+    },
+    {
+      "profile": "core",
+      "cases": 59,
+      "failures": 0,
+      "total_seconds": 4.904,
+      "phase_seconds": {
+        "app": 0.9109,
+        "web": 2.6711,
+        "cache": 0.0822,
+        "asset": 0.8244,
+        "bes": 0.0159,
+        "bazel": 0,
+        "auth": 0.0778,
+        "persistence": 0.0141
+      }
+    },
+    {
+      "profile": "full",
+      "cases": 61,
+      "failures": 0,
+      "total_seconds": 10.639,
+      "phase_seconds": {
+        "app": 1.0395,
+        "web": 2.7135,
+        "cache": 0.0732,
+        "asset": 0.8414,
+        "bes": 0.024,
+        "bazel": 5.6123,
+        "auth": 0.0613,
+        "persistence": 0.0068
+      }
+    },
+    {
+      "profile": "full",
+      "cases": 61,
+      "failures": 0,
+      "total_seconds": 9.943,
+      "phase_seconds": {
+        "app": 1.0654,
+        "web": 2.336,
+        "cache": 0.0742,
+        "asset": 0.8758,
+        "bes": 0.0188,
+        "bazel": 5.2754,
+        "auth": 0.0588,
+        "persistence": 0.0154
+      }
+    },
+    {
+      "profile": "full",
+      "cases": 61,
+      "failures": 0,
+      "total_seconds": 10.046,
+      "phase_seconds": {
+        "app": 0.9844,
+        "web": 2.2532,
+        "cache": 0.0721,
+        "asset": 0.8927,
+        "bes": 0.0572,
+        "bazel": 5.4604,
+        "auth": 0.0712,
+        "persistence": 0.012
+      }
+    },
+    {
+      "profile": "full",
+      "cases": 61,
+      "failures": 0,
+      "total_seconds": 9.917,
+      "phase_seconds": {
+        "app": 1.0451,
+        "web": 2.2248,
+        "cache": 0.0745,
+        "asset": 0.8866,
+        "bes": 0.0234,
+        "bazel": 5.3398,
+        "auth": 0.0656,
+        "persistence": 0.0106
+      }
+    },
+    {
+      "profile": "full",
+      "cases": 61,
+      "failures": 0,
+      "total_seconds": 10.014,
+      "phase_seconds": {
+        "app": 1.1375,
+        "web": 2.33,
+        "cache": 0.0936,
+        "asset": 0.815,
+        "bes": 0.0164,
+        "bazel": 5.3031,
+        "auth": 0.0676,
+        "persistence": 0.0155
+      }
+    }
+  ],
+  "ci": {
+    "run_url": "https://github.com/altdansalt/buildbuddy-smoke/actions/runs/34887414605",
+    "test_commit": "8ec8359db0fbd98f310ba1065fb4780b1dccc2bc",
+    "cases": 61,
+    "failures": 0,
+    "total_seconds": 12.185,
+    "machine": {
+      "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+      "python": "3.12.14",
+      "cpu_count": 2,
+      "app_gomaxprocs": 4
+    }
+  },
+  "deadline_probe": {
+    "budget_seconds": 7,
+    "total_seconds": 4.008,
+    "exit_code": 124,
+    "interrupted_phase": "bazel.cold_build_upload_and_bes",
+    "live_processes_remaining": 0
+  }
+}
